@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+<title>Food Rescue Network</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+
+*{
+margin:0;
+padding:0;
+box-sizing:border-box;
+font-family:Arial;
+}
+
+body{
+background-image:url("image/Food-Pantry.webp");
+background-size:cover;
+background-position:center;
+min-height:100vh;
+color:white;
+}
+
+/* Navbar */
+
+.navbar{
+background:rgba(0,0,0,0.6);
+padding:15px 30px;
+display:flex;
+justify-content:space-between;
+align-items:center;
+}
+
+.navbar span{
+color:#28a745;
+}
+
+/* Dashboard */
+
+.dashboard{
+display:grid;
+grid-template-columns:repeat(auto-fit,minmax(320px,1fr));
+gap:20px;
+padding:30px;
+}
+
+/* Cards */
+
+.card{
+background:rgba(0,0,0,0.45);
+backdrop-filter:blur(8px);
+padding:20px;
+border-radius:12px;
+box-shadow:0 0 15px rgba(0,0,0,0.5);
+}
+
+input{
+width:100%;
+padding:8px;
+margin-bottom:10px;
+border-radius:5px;
+border:none;
+}
+
+button{
+padding:8px 15px;
+background:#28a745;
+color:white;
+border:none;
+cursor:pointer;
+border-radius:5px;
+margin-top:5px;
+}
+
+button:hover{
+background:#218838;
+}
+
+/* Message cards */
+
+.message{
+background:rgba(255,255,255,0.15);
+padding:10px;
+border-radius:6px;
+margin-top:8px;
+}
+
+/* Scrollable output containers */
+
+.output{
+max-height:220px;
+overflow-y:auto;
+margin-top:10px;
+padding-right:5px;
+}
+
+.output::-webkit-scrollbar{
+width:6px;
+}
+
+.output::-webkit-scrollbar-thumb{
+background:#28a745;
+border-radius:10px;
+}
+
+/* Notification */
+
+#notification{
+position:center;
+top:20px;
+right:40px;
+background:#96cc85;
+padding:15px;
+border-radius:5px;
+display:none;
+font-weight:bold;
+}
+
+/* Map */
+
+#map{
+height:400px;
+border-radius:10px;
+}
+
+.stats{
+display:grid;
+grid-template-columns:repeat(2,1fr);
+gap:10px;
+margin-bottom:15px;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<div class="navbar">
+<h2>Food <span>Rescue</span> Network</h2>
+<p>Smart Food Redistribution System</p>
+</div>
+
+<div id="notification"></div>
+
+<div class="dashboard">
+
+<!-- Donate -->
+
+<div class="card">
+<h3>Donate Food</h3>
+
+<input id="food_type" placeholder="Food Type">
+<input id="quantity" placeholder="Quantity">
+<input id="location" placeholder="Location">
+<input id="latitude" placeholder="Latitude">
+<input id="longitude" placeholder="Longitude">
+
+<button onclick="donateFood()">Donate</button>
+
+</div>
+
+<!-- View donations -->
+
+<div class="card">
+<h3>View Donations</h3>
+
+<button onclick="loadDonations()">Load Donations</button>
+
+<div id="donations" class="output"></div>
+
+</div>
+
+<!-- Match volunteer -->
+
+<div class="card">
+<h3>Find Nearest Volunteer</h3>
+
+<input id="matchDonationId" placeholder="Donation ID">
+
+<button onclick="matchVolunteer()">Find Volunteer</button>
+
+<div id="matchResult" class="output"></div>
+
+</div>
+
+<!-- Assign pickup -->
+
+<div class="card">
+<h3>Assign Pickup</h3>
+
+<input id="pickupDonationId" placeholder="Donation ID">
+<input id="pickupVolunteerId" placeholder="Volunteer ID">
+
+<button onclick="assignPickup()">Assign</button>
+
+<div id="pickupResult" class="output"></div>
+
+</div>
+
+<!-- Update pickup -->
+
+<div class="card">
+<h3>Update Pickup Status</h3>
+
+<input id="pickupId" placeholder="Pickup ID">
+<input id="pickupStatus" placeholder="Picked / Delivered">
+
+<button onclick="updatePickup()">Update</button>
+
+<div id="updateResult" class="output"></div>
+
+</div>
+
+<!-- View pickups -->
+
+<div class="card">
+<h3>View Pickups</h3>
+
+<button onclick="loadPickups()">Load Pickups</button>
+
+<div id="pickups" class="output"></div>
+
+</div>
+
+<!-- Map -->
+
+<div class="card">
+<h3>Live Map (Donor & Volunteer)</h3>
+
+<div id="map"></div>
+
+<button onclick="showMap()">Show Map</button>
+
+</div>
+
+<!-- Logistics Dashboard -->
+
+<div class="card">
+
+<h3>Logistics Dashboard</h3>
+
+<div class="stats">
+
+<div class="message">
+📦 Total Donations<br>
+<b id="totalDonations">0</b>
+</div>
+
+<div class="message">
+🚚 Active Pickups<br>
+<b id="activePickups">0</b>
+</div>
+
+<div class="message">
+👥 Volunteers Used<br>
+<b id="volunteersUsed">0</b>
+</div>
+
+<div class="message">
+✅ Delivered Food<br>
+<b id="deliveredFood">0</b>
+</div>
+
+</div>
+
+<canvas id="statsChart"></canvas>
+
+</div>
+
+</div>
+</div>
+
+<script>
+
+const API="http://localhost:5000/api";
+let map;
+
+/* Notification */
+
+function showNotification(msg){
+
+const box=document.getElementById("notification");
+
+box.innerText=msg;
+box.style.display="block";
+
+setTimeout(()=>{
+box.style.display="none";
+},3000);
+
+}
+
+/* Donate Food */
+
+async function donateFood(){
+
+try{
+
+const data={
+
+donor_id:"123",
+
+food_type:document.getElementById("food_type").value,
+
+quantity:document.getElementById("quantity").value,
+
+location:document.getElementById("location").value,
+
+latitude:document.getElementById("latitude").value,
+
+longitude:document.getElementById("longitude").value,
+
+expiry_time:new Date()
+
+};
+
+const res=await fetch(API+"/donate",{
+method:"POST",
+headers:{"Content-Type":"application/json"},
+body:JSON.stringify(data)
+});
+
+const result=await res.json();
+
+showNotification(result.message || "Donation added");
+
+}catch(err){
+
+showNotification("Error adding donation");
+
+}
+
+}
+
+/* View Donations */
+
+async function loadDonations(){
+
+try{
+
+const res=await fetch(API+"/donations");
+const data=await res.json();
+
+let html="";
+
+if(!data || data.length===0){
+
+html="<div class='message'>⚠ No donations found</div>";
+
+}else{
+
+data.forEach(d=>{
+
+html+=`
+<div class="message">
+
+🆔 <b>Donation ID:</b> ${d._id || "N/A"}<br>
+🍱 <b>Food:</b> ${d.food_type || "N/A"}<br>
+📦 <b>Quantity:</b> ${d.quantity || "N/A"}<br>
+📍 <b>Location:</b> ${d.location || "Not provided"}<br>
+📌 <b>Coordinates:</b> ${d.latitude || "-"}, ${d.longitude || "-"}<br>
+📊 <b>Status:</b> ${d.status || "Pending"}
+
+</div>
+`;
+
+});
+
+}
+
+document.getElementById("donations").innerHTML=html;
+
+showNotification("Donations loaded");
+
+}catch(err){
+
+showNotification("Error loading donations");
+
+}
+
+}
+
+/* Match Volunteer */
+
+async function matchVolunteer(){
+
+try{
+
+const id=document.getElementById("matchDonationId").value;
+
+if(!id){
+showNotification("Enter Donation ID");
+return;
+}
+
+const res=await fetch(API+"/match/"+id,{method:"POST"});
+const data=await res.json();
+
+if(!data.assignedVolunteer){
+
+document.getElementById("matchResult").innerHTML=
+"<div class='message'>⚠ No volunteer found</div>";
+
+return;
+}
+
+document.getElementById("matchResult").innerHTML=`
+
+<div class="message">
+
+👤 <b>Volunteer Name:</b> ${data.assignedVolunteer.name}<br>
+🆔 <b>Volunteer ID:</b> ${data.assignedVolunteer._id}<br>
+📧 <b>Email:</b> ${data.assignedVolunteer.email}<br>
+📏 <b>Distance:</b> ${data.distance.toFixed(2)} km
+
+</div>
+
+`;
+
+showNotification("Volunteer matched");
+
+}catch(err){
+
+showNotification("Error matching volunteer");
+
+}
+
+}
+
+/* Assign Pickup */
+
+async function assignPickup(){
+
+try{
+
+const data={
+donation_id:document.getElementById("pickupDonationId").value,
+volunteer_id:document.getElementById("pickupVolunteerId").value
+};
+
+const res=await fetch(API+"/pickup",{
+method:"POST",
+headers:{"Content-Type":"application/json"},
+body:JSON.stringify(data)
+});
+
+const result=await res.json();
+
+if(!result.pickup){
+
+document.getElementById("pickupResult").innerHTML=
+"<div class='message'>⚠ Pickup not created</div>";
+
+return;
+
+}
+
+document.getElementById("pickupResult").innerHTML=`
+
+<div class="message">
+
+🚚 <b>Pickup Assigned</b><br>
+🆔 <b>Pickup ID:</b> ${result.pickup._id}<br>
+📦 <b>Donation ID:</b> ${result.pickup.donation_id}<br>
+👤 <b>Volunteer ID:</b> ${result.pickup.volunteer_id}<br>
+📊 <b>Status:</b> ${result.pickup.status}
+
+</div>
+
+`;
+
+showNotification("Pickup created");
+
+}catch(err){
+
+showNotification("Error assigning pickup");
+
+}
+
+}
+
+/* Update Pickup */
+
+async function updatePickup(){
+
+try{
+
+const res=await fetch(API+"/pickup/"+document.getElementById("pickupId").value,{
+method:"PUT",
+headers:{"Content-Type":"application/json"},
+body:JSON.stringify({
+status:document.getElementById("pickupStatus").value
+})
+});
+
+const result=await res.json();
+
+document.getElementById("updateResult").innerHTML=`
+
+<div class="message">
+
+📦 <b>Status Updated:</b> ${result.pickup?.status || "Updated"}
+
+</div>
+
+`;
+
+showNotification("Pickup updated");
+
+}catch(err){
+
+showNotification("Error updating pickup");
+
+}
+
+}
+
+/* View Pickups */
+
+async function loadPickups(){
+
+try{
+
+const res=await fetch(API+"/pickups");
+
+if(!res.ok){
+throw new Error("API failed");
+}
+
+const data=await res.json();
+
+const pickupList=data.pickups || data;
+
+let html="";
+
+if(!pickupList || pickupList.length===0){
+
+html="<div class='message'>⚠ No pickups found</div>";
+
+}else{
+
+pickupList.forEach(p=>{
+
+html+=`
+<div class="message">
+🆔 Pickup ID: ${p._id}<br>
+📦 Donation ID: ${p.donation_id}<br>
+👤 Volunteer ID: ${p.volunteer_id}<br>
+📊 Status: ${p.status}
+</div>
+`;
+
+});
+
+}
+
+document.getElementById("pickups").innerHTML=html;
+
+}catch(err){
+
+showNotification("Error loading pickups");
+
+}
+
+}
+
+/* Map */
+
+function showMap(){
+
+const donorLat=parseFloat(document.getElementById("latitude").value);
+const donorLng=parseFloat(document.getElementById("longitude").value);
+
+if(isNaN(donorLat) || isNaN(donorLng)){
+showNotification("Enter coordinates first");
+return;
+}
+
+const volunteerLat=17.39;
+const volunteerLng=78.50;
+
+if(!map){
+
+map=L.map('map').setView([donorLat,donorLng],12);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+maxZoom:19
+}).addTo(map);
+
+}
+
+L.marker([donorLat,donorLng]).addTo(map)
+.bindPopup("Donor Location")
+.openPopup();
+
+L.marker([volunteerLat,volunteerLng]).addTo(map)
+.bindPopup("Volunteer Location");
+
+L.polyline([
+[donorLat,donorLng],
+[volunteerLat,volunteerLng]
+],{color:'red'}).addTo(map);
+
+}
+/* Dashboard Statistics */
+
+let chart;
+
+async function loadDashboardStats(){
+
+try{
+
+const donationRes = await fetch(API+"/donations");
+const donations = await donationRes.json();
+
+const pickupRes = await fetch(API+"/pickups");
+const pickupRaw = await pickupRes.json();
+const pickups = pickupRaw.pickups || pickupRaw;
+
+const totalDonations = donations.length;
+
+const activePickups = pickups.filter(p=>p.status==="Assigned").length;
+
+const deliveredFood = pickups.filter(p=>p.status==="Delivered").length;
+
+const volunteerSet = new Set();
+pickups.forEach(p=>volunteerSet.add(p.volunteer_id));
+
+document.getElementById("totalDonations").innerText = totalDonations;
+document.getElementById("activePickups").innerText = activePickups;
+document.getElementById("deliveredFood").innerText = deliveredFood;
+document.getElementById("volunteersUsed").innerText = volunteerSet.size;
+
+drawChart(totalDonations,activePickups,deliveredFood);
+
+}catch(err){
+
+console.log("Dashboard error",err);
+
+}
+
+}
+/* Pie chart */
+
+function drawChart(donations,active,delivered){
+
+const ctx = document.getElementById("statsChart");
+
+if(chart){
+chart.destroy();
+}
+
+chart = new Chart(ctx,{
+
+type:"pie",
+
+data:{
+labels:[
+"Donations",
+"Active Pickups",
+"Delivered"
+],
+
+datasets:[{
+data:[donations,active,delivered],
+backgroundColor:[
+"#ffc107",
+"#17a2b8",
+"#28a745"
+]
+}]
+}
+
+});
+
+}setInterval(loadDashboardStats,3000);
+</script>
+
+</body>
+</html>
